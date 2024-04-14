@@ -1,4 +1,4 @@
-%define name qping
+%define name gping
 %define version 1.16.1
 %define release 1%{?dist}
 
