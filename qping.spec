@@ -8,7 +8,7 @@ Version:  %{version}
 Release:  %{release}
 License:  MIT License
 URL:      https://github.com/orf/gping
-Source0:  https://github.com/orf/gping/archive/refs/tags/gping-v%{Version}.tar.gz
+Source0:  https://github.com/orf/gping/archive/refs/tags/gping-v%{version}.tar.gz
 
 %define debug_package %{nil}
 
