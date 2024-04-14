@@ -16,12 +16,13 @@ BuildRequires: curl
 BuildRequires: gcc
 BuildRequires: make
 BuildRequires: gzip
+BuildRequires: upx
 
 %description
 Ping, but with a graph.
 
 %prep
-%setup -q
+%setup -q -n gping-gping-v%{version}
 
 %build
 # Install Rust using curl
@@ -29,26 +30,26 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 export PATH="$PATH:$HOME/.cargo/bin"
 cargo build --release
 strip --strip-all target/release/%{name}
-# Install manpages
-mkdir -p %{buildroot}%{_mandir}/man1/
-mkdir -p %{buildroot}%{_bindir}/
-gzip doc/%{name}.1
+mkdir -p %{buildroot}/%{_mandir}/man1/
+mkdir -p %{buildroot}/%{_bindir}/
+mkdir -p %{buildroot}/%{_bindir}
+gzip %{name}.1
+upx target/release/%{name}
 
 %install
-install -Dpm 0755 target/release/%{name} %{buildroot}%{_bindir}/%{name}
-install -Dpm 0644 doc/%{name}.1.gz -t %{buildroot}%{_mandir}/man1/
+# Create necessary directories
+mkdir -p %{buildroot}/%{_bindir}/
+mkdir -p %{buildroot}/%{_mandir}/man1/
 
-# Copy the binary to /bin in the buildroot
-install -m 755 target/release/%{name} %{buildroot}/%{_bindir}/%{name}
+# Install the binary and man page
+install -m 755 target/release/%{name} %{buildroot}/%{_bindir}/
+install -Dpm 0644 %{name}.1.gz -t %{buildroot}/%{_mandir}/man1/
 
 %files
 %license LICENSE
-%doc README.md CHANGELOG.md
+%doc readme.md
 # List all the files to be included in the package
 %{_bindir}/%{name}
-%{_sysconfdir}/fish/vendor_completions.d/%{name}.fish
-%{_sysconfdir}/zsh/site-functions/_%{name}
-%{_sysconfdir}/bash_completion.d/%{name}.bash
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
