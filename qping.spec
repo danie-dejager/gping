@@ -1,6 +1,6 @@
 %define name gping
 %define version 1.16.1
-%define release 1%{?dist}
+%define release 2%{?dist}
 
 Summary:  Ping, but with a graph
 Name:     %{name}
@@ -53,5 +53,7 @@ install -Dpm 0644 %{name}.1.gz -t %{buildroot}/%{_mandir}/man1/
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
+* Fri Jul 12 14 2024 - Danie de Jager - 1.16.1-2
+- rebuilt with Rust 1.79.0
 * Sun Apr 14 2024 - Danie de Jager - 1.16.1-1
 - Initial RPM build
