@@ -1,6 +1,6 @@
 %define name gping
-%define version 1.19.0
-%define release 3%{?dist}
+%define version 1.20.1
+%define release 1%{?dist}
 
 Summary:  Ping, but with a graph
 Name:     %{name}
@@ -53,6 +53,7 @@ install -Dpm 0644 %{name}.1.gz -t %{buildroot}/%{_mandir}/man1/
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
+* Sat Aug 16 2025 - Danie de Jager - 1.20.1-1 
 * Thu Aug 14 2025 - Danie de Jager - 1.19.0-3
 * Thu Jul 17 2025 - Danie de Jager - 1.19.0-2
 * Sat Jan 4 2025 - Danie de Jager - 1.19.0-1
