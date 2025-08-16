@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use crate::linux::LinuxPinger;
 /// Pinger
 /// This crate exposes a simple function to ping remote hosts across different operating systems.
 /// Example:
@@ -28,11 +26,14 @@ use std::{fmt, io, thread};
 use target::Target;
 use thiserror::Error;
 
+#[cfg(unix)]
 pub mod linux;
+#[cfg(unix)]
 pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(unix)]
 mod bsd;
 #[cfg(feature = "fake-ping")]
 mod fake;
@@ -219,7 +220,7 @@ pub fn get_pinger(options: PingOptions) -> std::result::Result<Arc<dyn Pinger>, 
         } else if cfg!(target_os = "macos") {
             Ok(Arc::new(macos::MacOSPinger::from_options(options)?))
         } else {
-            Ok(Arc::new(LinuxPinger::from_options(options)?))
+            Ok(Arc::new(linux::LinuxPinger::from_options(options)?))
         }
     }
 }
