@@ -1,6 +1,6 @@
 %define name gping
 %define version 1.20.1
-%define release 1%{?dist}
+%define release 2%{?dist}
 
 Summary:  Ping, but with a graph
 Name:     %{name}
