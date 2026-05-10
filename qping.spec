@@ -25,14 +25,16 @@ Ping, but with a graph.
 %setup -q -n gping-gping-v%{version}
 
 %build
-# Install Rust using curl
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 export PATH="$PATH:$HOME/.cargo/bin"
+
+%if 0%{?amzn} == 2023
+export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
+%endif
+
 cargo build --release
+
 strip --strip-all target/release/%{name}
-mkdir -p %{buildroot}/%{_mandir}/man1/
-mkdir -p %{buildroot}/%{_bindir}/
-mkdir -p %{buildroot}/%{_bindir}
 gzip %{name}.1
 upx target/release/%{name}
 
