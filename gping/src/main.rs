@@ -36,26 +36,10 @@ mod plot_data;
 mod region_map;
 
 use colors::Colors;
-use shadow_rs::{formatcp, shadow};
 use tui::prelude::Position;
 
-shadow!(build);
-
-const VERSION_INFO: &str = formatcp!(
-    r#"{}
-commit_hash: {}
-build_time: {}
-build_env: {},{}"#,
-    build::PKG_VERSION,
-    build::SHORT_COMMIT,
-    build::BUILD_TIME,
-    build::RUST_VERSION,
-    build::RUST_CHANNEL
-);
-
 #[derive(Parser, Debug)]
-#[command(author, version=build::PKG_VERSION, name = "gping", about = "Ping, but with a graph.", long_version = VERSION_INFO, styles = clap_cargo::style::CLAP_STYLING
-)]
+#[command(author, version, name = "gping", about = "Ping, but with a graph.", styles = clap_cargo::style::CLAP_STYLING)]
 struct Args {
     /// Graph the execution time for a list of commands rather than pinging hosts
     #[arg(long)]

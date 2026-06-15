@@ -1,5 +1,6 @@
 name: Homebrew Bump
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'gping-v*'
@@ -14,12 +15,15 @@ jobs:
         id: extract-version
         run: |
           echo "VERSION=${GITHUB_REF#refs/tags/gping-}" >> "$GITHUB_OUTPUT"
-      - uses: mislav/bump-homebrew-formula-action@v3
+      - uses: mislav/bump-homebrew-formula-action@v4
         with:
           formula-name: gping
           commit-message: |
             gping ${{ steps.extract-version.outputs.VERSION }}
 
             Created by https://github.com/mislav/bump-homebrew-formula-action
+          # codeload serves the tarball directly; the github.com archive URL
+          # redirects with 303, which the action rejects (mislav/bump-homebrew-formula-action#340)
+          download-url: https://codeload.github.com/orf/gping/tar.gz/refs/tags/${{ github.ref_name }}
         env:
           COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
