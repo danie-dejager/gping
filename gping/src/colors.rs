@@ -1,12 +1,18 @@
-use std::{iter::Iterator, ops::RangeFrom, str::FromStr};
+use std::{iter::Iterator, str::FromStr};
 
 use anyhow::{anyhow, Result};
 use tui::style::Color;
 
+/// Palette indices that are black or near-black and vanish on a dark terminal background.
+fn is_hard_to_see(index: u8) -> bool {
+    matches!(index, 0 | 8 | 16..=19 | 232..=239)
+}
+
 pub struct Colors<T> {
     already_used: Vec<Color>,
     color_names: T,
-    indices: RangeFrom<u8>,
+    next_index: u8,
+    wrapped: bool,
 }
 
 impl<T> From<T> for Colors<T> {
@@ -14,7 +20,8 @@ impl<T> From<T> for Colors<T> {
         Self {
             already_used: Vec::new(),
             color_names,
-            indices: 2..,
+            next_index: 2,
+            wrapped: false,
         }
     }
 }
@@ -39,13 +46,45 @@ where
                 })),
             },
             None => loop {
-                let index = unsafe { self.indices.next().unwrap_unchecked() };
+                let index = self.next_index;
+                if index == u8::MAX {
+                    self.next_index = 2;
+                    self.wrapped = true;
+                } else {
+                    self.next_index += 1;
+                }
+                if is_hard_to_see(index) {
+                    continue;
+                }
                 let color = Color::Indexed(index);
-                if !self.already_used.contains(&color) {
+                // After a full lap every color is taken, so reuse is expected.
+                if self.wrapped || !self.already_used.contains(&color) {
                     self.already_used.push(color);
                     break Some(Ok(color));
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generated_colors_are_never_hard_to_see() {
+        let names: Vec<String> = vec![];
+        for color in Colors::from(names.iter()).take(600) {
+            match color.unwrap() {
+                Color::Indexed(i) => assert!(!is_hard_to_see(i), "index {}", i),
+                other => panic!("unexpected color {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_generated_colors_cycle_without_panicking() {
+        let names: Vec<String> = vec![];
+        assert_eq!(Colors::from(names.iter()).take(1000).count(), 1000);
     }
 }
