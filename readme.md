@@ -99,6 +99,10 @@ Options:
           Resolve ping targets to IPv4 address
   -6
           Resolve ping targets to IPv6 address
+      --first-ip
+          Ping only the first IP address a hostname resolves to, instead of all of them
+      --max-ips <MAX_IPS>
+          Maximum number of IP addresses to ping per hostname (0 for no limit) [default: 0]
   -i, --interface <INTERFACE>
           Interface to use when pinging
   -s, --simple-graphics
