@@ -71,6 +71,12 @@ struct Args {
     /// Resolve ping targets to IPv6 address
     #[arg(short = '6', conflicts_with = "ipv4")]
     ipv6: bool,
+    /// Ping only the first IP address a hostname resolves to, instead of all of them
+    #[arg(long, conflicts_with = "cmd")]
+    first_ip: bool,
+    /// Maximum number of IP addresses to ping per hostname (0 for no limit)
+    #[arg(long, default_value_t = 0, conflicts_with = "first_ip")]
+    max_ips: usize,
 
     #[cfg(not(target_os = "windows"))]
     /// Interface to use when pinging.
@@ -356,6 +362,7 @@ fn start_ping_thread(
     host_id: usize,
     ping_tx: Sender<Event>,
     kill_event: Arc<AtomicBool>,
+    keep_timing_out: Option<Duration>,
 ) -> Result<JoinHandle<Result<()>>> {
     let stream = ping(options)?;
     // Pump ping messages into the queue
@@ -363,7 +370,17 @@ fn start_ping_thread(
         while !kill_event.load(Ordering::Acquire) {
             match stream.recv() {
                 Ok(v) => {
-                    ping_tx.send(Event::Update(host_id, v.into()))?;
+                    let update: Update = v.into();
+                    let failed = matches!(&update, Update::Terminated(e, _) if !e.success());
+                    ping_tx.send(Event::Update(host_id, update))?;
+                    if let (true, Some(interval)) = (failed, keep_timing_out) {
+                        // Keep the dead host's line counting timeouts so it stays visible.
+                        while !kill_event.load(Ordering::Acquire) {
+                            thread::sleep(interval);
+                            ping_tx.send(Event::Update(host_id, Update::Timeout))?;
+                        }
+                        return Ok(());
+                    }
                 }
                 Err(_) => {
                     // Stream closed, just break
@@ -375,7 +392,22 @@ fn start_ping_thread(
     }))
 }
 
-fn get_host_ipaddr(host: &str, force_ipv4: bool, force_ipv6: bool) -> Result<String> {
+/// Keeps addresses of the requested family, grouped IPv4 then IPv6, truncated to `max` (0 means no limit).
+fn select_ips(ips: Vec<IpAddr>, force_ipv4: bool, force_ipv6: bool, max: usize) -> Vec<IpAddr> {
+    let limit = if max == 0 { usize::MAX } else { max };
+    let (v4, v6): (Vec<IpAddr>, Vec<IpAddr>) = ips
+        .into_iter()
+        .filter(|ip| (!force_ipv4 || ip.is_ipv4()) && (!force_ipv6 || ip.is_ipv6()))
+        .partition(IpAddr::is_ipv4);
+    v4.into_iter().chain(v6).take(limit).collect()
+}
+
+fn resolve_host_ips(
+    host: &str,
+    force_ipv4: bool,
+    force_ipv6: bool,
+    max: usize,
+) -> Result<Vec<IpAddr>> {
     let mut host = host.to_string();
     if !host.is_ascii() {
         let Ok(encoded_host) = idna::domain_to_ascii(&host) else {
@@ -391,22 +423,16 @@ fn get_host_ipaddr(host: &str, force_ipv4: bool, force_ipv6: bool) -> Result<Str
     if ipaddr.is_empty() {
         bail!("Could not resolve hostname {}", host)
     }
-    let ipaddr = if force_ipv4 {
-        ipaddr
-            .iter()
-            .find(|ip| matches!(ip, IpAddr::V4(_)))
-            .ok_or_else(|| anyhow!("Could not resolve '{}' to IPv4", host))
-    } else if force_ipv6 {
-        ipaddr
-            .iter()
-            .find(|ip| matches!(ip, IpAddr::V6(_)))
-            .ok_or_else(|| anyhow!("Could not resolve '{}' to IPv6", host))
-    } else {
-        ipaddr
-            .first()
-            .ok_or_else(|| anyhow!("Could not resolve '{}' to IP", host))
-    };
-    Ok(ipaddr?.to_string())
+    let selected = select_ips(ipaddr, force_ipv4, force_ipv6, max);
+    if selected.is_empty() {
+        let family = if force_ipv4 { "IPv4" } else { "IPv6" };
+        bail!("Could not resolve '{}' to {}", host, family)
+    }
+    Ok(selected)
+}
+
+fn get_host_ipaddr(host: &str, force_ipv4: bool, force_ipv6: bool) -> Result<String> {
+    Ok(resolve_host_ips(host, force_ipv4, force_ipv6, 1)?[0].to_string())
 }
 
 // Convert milliseconds Option<u64>
@@ -462,14 +488,27 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    for (host_or_cmd, color) in hosts_or_commands.iter().zip(colors) {
+    // (label shown in the legend, target actually pinged)
+    let mut targets: Vec<(String, String)> = vec![];
+    for h in &hosts_or_commands {
+        if !args.first_ip && !args.cmd {
+            for ip in resolve_host_ips(h, args.ipv4, args.ipv6, args.max_ips)? {
+                targets.push((h.clone(), ip.to_string()));
+            }
+        } else {
+            targets.push((h.clone(), h.clone()));
+        }
+    }
+
+    for ((label, target), color) in targets.iter().zip(colors) {
         let color = color?;
         let display = match args.cmd {
-            true => host_or_cmd.to_string(),
+            true => label.to_string(),
+            false if !args.first_ip => format!("{label} ({target})"),
             false => format!(
                 "{} ({})",
-                host_or_cmd,
-                get_host_ipaddr(host_or_cmd, args.ipv4, args.ipv6)?
+                label,
+                get_host_ipaddr(label, args.ipv4, args.ipv6)?
             ),
         };
         data.push(PlotData::new(
@@ -496,7 +535,7 @@ fn main() -> Result<()> {
 
     let killed = Arc::new(AtomicBool::new(false));
 
-    for (host_id, host_or_cmd) in hosts_or_commands.iter().cloned().enumerate() {
+    for (host_id, (_, host_or_cmd)) in targets.iter().cloned().enumerate() {
         if args.cmd {
             let cmd_thread = start_cmd_thread(
                 &host_or_cmd,
@@ -533,6 +572,7 @@ fn main() -> Result<()> {
                 host_id,
                 key_tx.clone(),
                 std::sync::Arc::clone(&killed),
+                (!args.first_ip).then_some(interval),
             )?);
         }
     }
@@ -588,6 +628,7 @@ fn main() -> Result<()> {
         Ok(())
     });
 
+    let mut failed_hosts = 0;
     loop {
         match rx.recv()? {
             Event::Update(host_id, update) => {
@@ -599,6 +640,14 @@ fn main() -> Result<()> {
                         break;
                     }
                     Update::Terminated(e, stderr) => {
+                        // One unreachable address (e.g. no IPv6 route) must not end the session;
+                        // it is shown as a timed-out line so it stands out from the working ones.
+                        if !args.first_ip && !args.cmd {
+                            failed_hosts += 1;
+                            if failed_hosts < app.data.len() {
+                                continue;
+                            }
+                        }
                         eprintln!("There was an error running ping: {e}\nStderr: {stderr}\n");
                         break;
                     }
@@ -701,6 +750,41 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_ips() -> Vec<IpAddr> {
+        ["1.1.1.1", "2001:db8::1", "2.2.2.2", "2001:db8::2", "3.3.3.3"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn test_select_ips_no_filter_keeps_all() {
+        assert_eq!(select_ips(sample_ips(), false, false, 0).len(), 5);
+    }
+
+    #[test]
+    fn test_select_ips_groups_ipv4_before_ipv6() {
+        let picked = select_ips(sample_ips(), false, false, 0);
+        let first_v6 = picked.iter().position(IpAddr::is_ipv6).unwrap();
+        assert!(picked[..first_v6].iter().all(IpAddr::is_ipv4));
+        assert!(picked[first_v6..].iter().all(IpAddr::is_ipv6));
+    }
+
+    #[test]
+    fn test_select_ips_family_filter() {
+        assert!(select_ips(sample_ips(), true, false, 0).iter().all(IpAddr::is_ipv4));
+        assert_eq!(select_ips(sample_ips(), true, false, 0).len(), 3);
+        assert!(select_ips(sample_ips(), false, true, 0).iter().all(IpAddr::is_ipv6));
+        assert_eq!(select_ips(sample_ips(), false, true, 0).len(), 2);
+    }
+
+    #[test]
+    fn test_select_ips_limit_applies_after_filter() {
+        let ips = select_ips(sample_ips(), false, true, 1);
+        assert_eq!(ips, vec!["2001:db8::1".parse::<IpAddr>().unwrap()]);
+        assert_eq!(select_ips(sample_ips(), false, false, 2).len(), 2);
+    }
 
     /// An app holding a single host whose samples are the given microsecond values.
     fn app_with(samples: &[f64], yrange: (Option<f64>, Option<f64>)) -> App {
